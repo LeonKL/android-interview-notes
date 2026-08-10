@@ -16,6 +16,8 @@ ALLOWED_TOPLEVEL = {
     "posts", "assets", "scripts", ".github", ".gitignore",
     "README.md", "LICENSE",
 }
+# 本地构建产物，不进仓库（已在 .gitignore），扫描时忽略
+IGNORED_TOPLEVEL = {"dist", "__pycache__", ".git"}
 
 # 允许出现在 posts/ 里的文章（Day 1～7 草稿导出后的文件名）
 ALLOWED_POSTS = {f"day-{i:02d}.md" for i in range(1, 8)}
@@ -49,10 +51,10 @@ URL_ALLOW = re.compile(r"https://(?:kotlinlang\.org|developer\.android\.com|docs
 def scan():
     errors = []
 
-    # 1. 白名单：列出仓库根下所有顶层条目
+    # 1. 白名单：列出仓库根下所有顶层条目（忽略构建产物和缓存）
     for entry in ROOT.iterdir():
         name = entry.name
-        if entry.is_dir() and name == ".git":
+        if name in IGNORED_TOPLEVEL:
             continue
         if name not in ALLOWED_TOPLEVEL:
             errors.append(f"白名单外顶层条目: {name}")

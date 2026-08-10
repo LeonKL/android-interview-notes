@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Preflight security scan
+        run: python scripts/preflight.py
       - name: Build static site
         run: python scripts/build.py
       - name: Upload Pages artifact

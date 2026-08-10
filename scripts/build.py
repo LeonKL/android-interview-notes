@@ -30,7 +30,7 @@ INTERNAL_FIELDS = {"type", "status", "publication_status", "github_pages_status"
 
 
 def parse_frontmatter(text):
-    """解析 YAML frontmatter（仅处理扁平 key 与简单列表，够用即可）。"""
+    """解析 YAML frontmatter：支持扁平 key、列表项格式和内联 [a, b] 数组。"""
     if not text.startswith("---"):
         return {}, text
     end = text.find("\n---", 3)
@@ -54,7 +54,15 @@ def parse_frontmatter(text):
         if ":" in line:
             key, _, value = line.partition(":")
             key = key.strip()
-            value = value.strip().strip('"').strip("'")
+            value = value.strip()
+            # 内联数组 [a, b, c]
+            if value.startswith("[") and value.endswith("]"):
+                inner = value[1:-1]
+                items = [x.strip().strip('"').strip("'") for x in inner.split(",") if x.strip()]
+                meta[key] = items
+                current_key = key
+                continue
+            value = value.strip('"').strip("'")
             if value == "":
                 meta[key] = []
                 current_key = key
@@ -64,14 +72,19 @@ def parse_frontmatter(text):
     return meta, body
 
 
-def md_to_html(md_text):
-    """极简 Markdown → HTML 转换，覆盖学习站用到的语法子集。"""
+def md_to_html(md_text, path_prefix="", skip_h1_title=None):
+    """极简 Markdown → HTML 转换，覆盖学习站用到的语法子集。
+
+    skip_h1_title：若正文首个 H1 与此文本一致，则跳过（避免与页头 title 重复）。
+    path_prefix：用于 hashtag 链接的前缀（如 "../"）。
+    """
     lines = md_text.split("\n")
     out = []
     in_code = False
     code_lang = ""
     in_list = False
     in_ol = False
+    first_h1_seen = False
 
     def flush_list():
         nonlocal in_list, in_ol
@@ -104,14 +117,20 @@ def md_to_html(md_text):
         if m:
             flush_list()
             level = len(m.group(1))
-            text = inline(m.group(2))
+            heading_text = m.group(2).strip()
+            # 跳过与 frontmatter title 重复的首个 H1
+            if level == 1 and not first_h1_seen:
+                first_h1_seen = True
+                if skip_h1_title and heading_text == skip_h1_title:
+                    continue
+            text = inline(heading_text, path_prefix)
             out.append(f"<h{level}>{text}</h{level}>")
             continue
 
         # 引用
         if line.startswith("> "):
             flush_list()
-            out.append(f"<blockquote>{inline(line[2:])}</blockquote>")
+            out.append(f"<blockquote>{inline(line[2:], path_prefix)}</blockquote>")
             continue
 
         # 分隔线
@@ -127,7 +146,7 @@ def md_to_html(md_text):
                 out.append("<ul>")
                 in_list = True
             content = re.sub(r"^\s*[-*]\s+", "", line)
-            out.append(f"<li>{inline(content)}</li>")
+            out.append(f"<li>{inline(content, path_prefix)}</li>")
             continue
 
         # 有序列表
@@ -137,7 +156,7 @@ def md_to_html(md_text):
                 out.append("<ol>")
                 in_ol = True
             content = re.sub(r"^\s*\d+\.\s+", "", line)
-            out.append(f"<li>{inline(content)}</li>")
+            out.append(f"<li>{inline(content, path_prefix)}</li>")
             continue
 
         # 空行
@@ -148,7 +167,7 @@ def md_to_html(md_text):
 
         # 普通段落
         flush_list()
-        out.append(f"<p>{inline(line)}</p>")
+        out.append(f"<p>{inline(line, path_prefix)}</p>")
 
     flush_list()
     if in_code:
@@ -156,7 +175,7 @@ def md_to_html(md_text):
     return "\n".join(out)
 
 
-def inline(text):
+def inline(text, path_prefix=""):
     """处理行内语法：code、bold、link、hashtag。"""
     # 转义 HTML
     text = html.escape(text, quote=False)
@@ -168,9 +187,9 @@ def inline(text):
     text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)",
                   lambda m: f'<a href="{html.escape(m.group(2))}">{m.group(1)}</a>',
                   text)
-    # hashtag #标签
+    # hashtag #标签（指向站点标签页，用 path_prefix 适配深度）
     text = re.sub(r"(^|\s)#([^\s#<]+)",
-                  lambda m: f'{m.group(1)}<a class="tag" href="../tags.html#{html.escape(m.group(2))}">#{m.group(2)}</a>',
+                  lambda m: f'{m.group(1)}<a class="tag" href="{path_prefix}tags.html#{html.escape(m.group(2))}">#{m.group(2)}</a>',
                   text)
     return text
 
@@ -194,6 +213,14 @@ def load_posts():
     return posts
 
 
+def get_tags(meta):
+    """从 meta 安全取出标签列表（兼容字符串、列表、缺失）。"""
+    tags = meta.get("tags", [])
+    if isinstance(tags, str):
+        return [tags] if tags else []
+    return tags or []
+
+
 def build():
     if DIST_DIR.exists():
         shutil.rmtree(DIST_DIR)
@@ -206,13 +233,10 @@ def build():
     # 收集标签
     all_tags = {}
     for p in posts:
-        tags = p["raw_meta"].get("tags", [])
-        if isinstance(tags, str):
-            tags = [tags]
-        for t in tags:
+        for t in get_tags(p["raw_meta"]):
             all_tags.setdefault(t, []).append(p)
 
-    # 渲染每篇文章
+    # 渲染每篇文章（深度 2：/post/day-XX/index.html → ../../）
     for i, p in enumerate(posts):
         prev = posts[i - 1] if i > 0 else None
         nxt = posts[i + 1] if i < len(posts) - 1 else None
@@ -221,16 +245,18 @@ def build():
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "index.html").write_text(html_content, encoding="utf-8")
 
-    # 首页
+    # 首页（深度 0）
     (DIST_DIR / "index.html").write_text(render_index(posts), encoding="utf-8")
-    # 标签页
+    # 标签页（深度 0）
     (DIST_DIR / "tags.html").write_text(render_tags(all_tags, posts), encoding="utf-8")
 
-    # 复制静态资源
+    # 复制静态资源到 dist/assets/（CSS 等都放这里，所有页面统一引用 <prefix>assets/）
+    assets_dst = DIST_DIR / "assets"
+    assets_dst.mkdir(exist_ok=True)
     assets_src = ROOT / "assets"
     if assets_src.exists():
         for f in assets_src.glob("*"):
-            shutil.copy(f, DIST_DIR / f.name)
+            shutil.copy(f, assets_dst / f.name)
 
     # 生成站点元数据 JSON（供客户端搜索用）
     search_index = []
@@ -240,7 +266,7 @@ def build():
             "slug": p["slug"],
             "title": meta.get("title", p["slug"]),
             "day": meta.get("day", ""),
-            "tags": meta.get("tags", []) if isinstance(meta.get("tags"), list) else [meta.get("tags", "")],
+            "tags": get_tags(meta),
             "summary": extract_summary(p["body"]),
         })
     (DIST_DIR / "search-index.json").write_text(
@@ -266,21 +292,24 @@ SITE_TITLE = "Android 面试学习笔记"
 SITE_SUBTITLE = "Kotlin · 协程 · Android 进阶 · 8 周系统复习"
 
 
-def page_template(title, content, extra_head=""):
+def page_template(title, content, path_prefix):
+    """path_prefix 决定该页面对站点根的相对前缀。
+    首页/标签页（根目录）= ""；文章页（/post/day-XX/）= "../../"。
+    """
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{html.escape(title)} · {SITE_TITLE}</title>
-<link rel="stylesheet" href="{extra_head or '../assets/style.css'}">
+<link rel="stylesheet" href="{path_prefix}assets/style.css">
 </head>
 <body>
 <nav class="topnav">
-  <a class="brand" href="../index.html">{SITE_TITLE}</a>
+  <a class="brand" href="{path_prefix}index.html">{SITE_TITLE}</a>
   <div class="nav-links">
-    <a href="../index.html">目录</a>
-    <a href="../tags.html">标签</a>
+    <a href="{path_prefix}index.html">目录</a>
+    <a href="{path_prefix}tags.html">标签</a>
   </div>
 </nav>
 <main>
@@ -300,9 +329,7 @@ def render_index(posts):
         day = meta.get("day", "?")
         title = meta.get("title", p["slug"])
         summary = extract_summary(p["body"])
-        tags = meta.get("tags", [])
-        if isinstance(tags, str):
-            tags = [tags]
+        tags = get_tags(meta)
         tags_html = "".join(f'<a class="tag" href="tags.html#{html.escape(t)}">#{html.escape(t)}</a>'
                             for t in tags)
         items.append(f"""
@@ -319,18 +346,17 @@ def render_index(posts):
 </header>
 <div class="post-list">{''.join(items)}
 </div>"""
-    # 首页样式路径调整
-    return page_template("首页", content, extra_head="assets/style.css").replace('href="../assets/style.css"', 'href="assets/style.css"').replace('href="../index.html"', 'href="index.html"').replace('href="../tags.html"', 'href="tags.html"')
+    return page_template("首页", content, path_prefix="")
 
 
 def render_post(p, prev, nxt):
     meta = p["raw_meta"]
     title = meta.get("title", p["slug"])
-    body_html = md_to_html(p["body"])
-    tags = meta.get("tags", [])
-    if isinstance(tags, str):
-        tags = [tags]
-    tags_html = "".join(f'<a class="tag" href="../tags.html#{html.escape(t)}">#{html.escape(t)}</a>'
+    # 文章页深度 2：用 ../../ 前缀；跳过正文里与 title 重复的首个 H1
+    pp = "../../"
+    body_html = md_to_html(p["body"], path_prefix=pp, skip_h1_title=title)
+    tags = get_tags(meta)
+    tags_html = "".join(f'<a class="tag" href="{pp}tags.html#{html.escape(t)}">#{html.escape(t)}</a>'
                         for t in tags)
     sources = meta.get("sources", [])
     if isinstance(sources, str):
@@ -344,11 +370,11 @@ def render_post(p, prev, nxt):
     prev_html = ""
     if prev:
         prev_title = prev["raw_meta"].get("title", prev["slug"])
-        prev_html = f'<a class="nav-prev" href="../{prev["slug"]}/index.html">← {html.escape(prev_title)}</a>'
+        prev_html = f'<a class="nav-prev" href="{pp}post/{prev["slug"]}/index.html">← {html.escape(prev_title)}</a>'
     nxt_html = ""
     if nxt:
         nxt_title = nxt["raw_meta"].get("title", nxt["slug"])
-        nxt_html = f'<a class="nav-next" href="../{nxt["slug"]}/index.html">{html.escape(nxt_title)} →</a>'
+        nxt_html = f'<a class="nav-next" href="{pp}post/{nxt["slug"]}/index.html">{html.escape(nxt_title)} →</a>'
 
     content = f"""
 <article class="post">
@@ -366,7 +392,7 @@ def render_post(p, prev, nxt):
     {nxt_html}
   </nav>
 </article>"""
-    return page_template(title, content)
+    return page_template(title, content, path_prefix=pp)
 
 
 def render_tags(all_tags, posts):
@@ -389,7 +415,7 @@ def render_tags(all_tags, posts):
 </header>
 <div class="tags-page">{''.join(sections)}
 </div>"""
-    return page_template("标签", content, extra_head="assets/style.css").replace('href="../assets/style.css"', 'href="assets/style.css"').replace('href="../index.html"', 'href="index.html"').replace('href="../tags.html"', 'href="tags.html"')
+    return page_template("标签", content, path_prefix="")
 
 
 if __name__ == "__main__":
