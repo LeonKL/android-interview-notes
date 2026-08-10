@@ -19,7 +19,9 @@ ALLOWED_TOPLEVEL = {
 # 本地构建产物，不进仓库（已在 .gitignore），扫描时忽略
 IGNORED_TOPLEVEL = {"dist", "__pycache__", ".git"}
 
-# 允许出现在 posts/ 里的文章（Day 1～7 草稿导出后的文件名）
+# 允许出现在 posts/ 里的文章（Day 1～7 草稿导出后的文件名）。
+# 静态白名单：发布新文章（如 Day 8）时，必须先在此处追加对应文件名，且获得用户明确发布授权。
+# 之所以用静态白名单而非「放行所有 posts/*.md」，是为了在 CI 阶段就拦截未经授权的文章。
 ALLOWED_POSTS = {f"day-{i:02d}.md" for i in range(1, 8)}
 
 # 敏感信息模式
@@ -59,12 +61,16 @@ def scan():
         if name not in ALLOWED_TOPLEVEL:
             errors.append(f"白名单外顶层条目: {name}")
 
-    # 2. posts/ 里只允许 Day 1～7
+    # 2. posts/ 里只允许白名单内的文章
     posts_dir = ROOT / "posts"
     if posts_dir.exists():
         for f in posts_dir.iterdir():
             if f.name not in ALLOWED_POSTS:
-                errors.append(f"白名单外文章: posts/{f.name}")
+                errors.append(
+                    f"白名单外文章: posts/{f.name}。"
+                    f"如需发布新文章，须先获得用户明确授权，"
+                    f"再在 scripts/preflight.py 的 ALLOWED_POSTS 中追加 '{f.name}'。"
+                )
 
     # 3. 敏感信息扫描：扫描内容文件和站点配置（不扫描 scripts/ 内的清洗规则字符串字面量）
     #    scripts/ 里会出现 "AGENTS.md" "chatgpt-conversation://" 等字符串，那是清洗逻辑用来

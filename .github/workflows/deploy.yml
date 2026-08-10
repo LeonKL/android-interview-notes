@@ -19,10 +19,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Preflight security scan
+      - name: Preflight security scan (source files)
         run: python scripts/preflight.py
       - name: Build static site
         run: python scripts/build.py
+      - name: Verify built site (links/H1/assets/secrets)
+        run: python scripts/verify_site.py
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
