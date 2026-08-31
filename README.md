@@ -7,6 +7,7 @@
 ## 内容
 
 - Week 1（Kotlin 基础）：Day 1～Day 7
+- Week 2（协程与 Flow）：Day 8～（连载中）
 
 后续课程完成后按篇增量发布。
 

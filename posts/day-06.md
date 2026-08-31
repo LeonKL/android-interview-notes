@@ -84,7 +84,7 @@ val u = java.getName()           // 平台类型 String!，调用 .length 放行
 class UserRepo(private val javaApi: JavaApi) {
     // ❌ 危险：可能 NPE
     // fun name(): String = javaApi.getName()
-    
+
     // ✅ 显式标可空
     fun name(): String? = javaApi.getName()
     // 或加注解 @Nullable String getName() 让 Kotlin 识别
