@@ -82,7 +82,7 @@ def export():
         f.unlink()
 
     count = 0
-    for i in range(1, 9):
+    for i in range(1, 10):
         src = KB_REPORTS / f"knowledge-planet-day-{i:02d}.md"
         if not src.exists():
             print(f"警告：源文件不存在 {src}", file=sys.stderr)

@@ -22,7 +22,7 @@ IGNORED_TOPLEVEL = {"dist", "__pycache__", ".git"}
 # 允许出现在 posts/ 里的文章（草稿导出后的文件名）。
 # 静态白名单：发布新文章时，必须先在此处追加对应文件名，且获得用户明确发布授权。
 # 之所以用静态白名单而非「放行所有 posts/*.md」，是为了在 CI 阶段就拦截未经授权的文章。
-ALLOWED_POSTS = {f"day-{i:02d}.md" for i in range(1, 9)}
+ALLOWED_POSTS = {f"day-{i:02d}.md" for i in range(1, 10)}
 
 # 敏感信息模式
 SENSITIVE_PATTERNS = [
